@@ -31,21 +31,21 @@ def generate_slide_plan(parsed_data, api_key=None):
     
     Requirements:
     1. Output MUST be a valid JSON object.
-    2. Theme: Choose a professional "flat illustration" style.
-    3. Colors: Pick a primary and secondary color suitable for business.
+    2. Theme: Choose a **pop / colorful** design style — vivid, bright, friendly, playful.
+    3. Colors: Pick a vibrant primary color (e.g. coral, hot pink, electric blue) and a complementary secondary color. Avoid dull or muted tones.
     4. For EACH slide:
        - 'layout': Choose one of ["title_only", "title_bullets", "title_bullets_image_right", "hero_image"].
        - 'image': Define an image prompt.
          - 'type': "illustration"
-         - 'prompt': A detailed ENGLISH prompt for an AI image generator describing a flat illustration style image.
+         - 'prompt': A detailed ENGLISH prompt for an AI image generator. Use a **colorful pop-art / kawaii flat illustration** style with bright colors, rounded shapes, and fun elements. No text in the image.
          - 'aspect_ratio': "16:9" or "1:1" (use 1:1 for side images, 16:9 for hero).
     5. 'bullets': Keep the original bullets. If a slide has too many bullets (more than 5), you don't need to split them here; the builder will handle it, but you should ensure the layout fits.
     6. Simplify the prompt to avoid text in images.
-    
+
     Output Format (JSON Only):
     {{
       "theme": {{
-        "style": "flat illustration",
+        "style": "pop colorful",
         "primary_color": "#Hex",
         "secondary_color": "#Hex",
         "font": "Arial"
@@ -57,7 +57,7 @@ def generate_slide_plan(parsed_data, api_key=None):
           "layout": "title_bullets_image_right",
           "image": {{
             "type": "illustration",
-            "prompt": "flat illustration of ..., minimal, white background",
+            "prompt": "colorful pop-art flat illustration of ..., bright colors, rounded shapes, white background",
             "aspect_ratio": "1:1"
           }}
         }}
@@ -90,9 +90,9 @@ def _create_fallback_plan(parsed_data):
     
     return {
         "theme": {
-            "style": "simple",
-            "primary_color": "#000000",
-            "secondary_color": "#ffffff",
+            "style": "pop colorful",
+            "primary_color": "#FF5A5F",
+            "secondary_color": "#48D2FF",
             "font": "Arial"
         },
         "slides": slides

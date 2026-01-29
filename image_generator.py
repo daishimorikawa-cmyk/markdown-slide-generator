@@ -116,42 +116,57 @@ def _generate_google_image(prompt, filepath, model_name, aspect_ratio):
         return False
 
 def _generate_mock_image(prompt, width, height, filepath):
-    """Generates a placeholder image using Pillow."""
-    # Soft gradient-like background using horizontal bands
-    img = Image.new('RGB', (width, height), color=(225, 235, 250))
+    """Generates a colorful pop-style placeholder image using Pillow."""
+    # Warm pastel gradient background
+    img = Image.new('RGB', (width, height), color=(255, 245, 235))
     d = ImageDraw.Draw(img)
 
-    # Subtle gradient effect
     for y in range(height):
-        r = int(225 - (y / height) * 25)
-        g = int(235 - (y / height) * 15)
-        b = int(250 - (y / height) * 10)
+        r = int(255 - (y / height) * 15)
+        g = int(245 - (y / height) * 40)
+        b = int(235 + (y / height) * 20)
         d.line([(0, y), (width, y)], fill=(r, g, b))
 
-    # Decorative shapes
     cx, cy = width // 2, height // 2
-    radius = min(width, height) // 5
-    d.ellipse(
-        [cx - radius, cy - radius, cx + radius, cy + radius],
-        fill=(200, 215, 240), outline=(160, 180, 220), width=3
-    )
-    r2 = radius // 2
-    d.ellipse(
-        [cx - r2, cy - r2, cx + r2, cy + r2],
-        fill=(180, 200, 230)
-    )
 
-    # Small accent dots
-    for ox, oy in [(-1.4, -0.6), (1.4, 0.6), (-0.5, 1.3), (0.5, -1.3)]:
-        dx = int(cx + radius * ox)
-        dy = int(cy + radius * oy)
-        d.ellipse([dx - 12, dy - 12, dx + 12, dy + 12], fill=(190, 210, 240))
+    # Colorful pop circles
+    pop_colors = [
+        (255, 90, 95),    # coral
+        (72, 210, 255),   # sky blue
+        (255, 200, 60),   # yellow
+        (130, 230, 150),  # mint
+        (200, 140, 255),  # lavender
+    ]
+
+    # Large center circle
+    r1 = min(width, height) // 4
+    d.ellipse([cx - r1, cy - r1, cx + r1, cy + r1], fill=pop_colors[0])
+
+    # Medium overlapping circles
+    offsets = [(-0.9, -0.5), (0.9, -0.3), (-0.5, 0.9), (0.7, 0.8)]
+    for i, (ox, oy) in enumerate(offsets):
+        r = r1 // 2
+        dx = int(cx + r1 * ox)
+        dy = int(cy + r1 * oy)
+        d.ellipse([dx - r, dy - r, dx + r, dy + r], fill=pop_colors[(i + 1) % len(pop_colors)])
+
+    # Small scattered dots
+    import random
+    rng = random.Random(hash(prompt) % 2**32)
+    for _ in range(12):
+        dot_r = rng.randint(8, 20)
+        dx = rng.randint(dot_r, width - dot_r)
+        dy = rng.randint(dot_r, height - dot_r)
+        color = pop_colors[rng.randint(0, len(pop_colors) - 1)]
+        # Lighten the color for small dots
+        light = tuple(min(255, c + 60) for c in color)
+        d.ellipse([dx - dot_r, dy - dot_r, dx + dot_r, dy + dot_r], fill=light)
 
     # Label
     try:
         font = ImageFont.truetype("arial.ttf", 14)
     except IOError:
         font = ImageFont.load_default()
-    d.text((20, height - 35), "AI Image Placeholder", fill=(130, 150, 185), font=font)
+    d.text((20, height - 30), "AI Image Placeholder", fill=(180, 140, 160), font=font)
 
     img.save(filepath)
