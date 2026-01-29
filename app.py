@@ -13,9 +13,12 @@ from slide_builder import generate_pptx
 def _get_secret(key, default=None):
     """st.secrets を優先し、なければ os.getenv にフォールバック。"""
     try:
-        return st.secrets[key]
-    except (KeyError, FileNotFoundError):
-        return os.getenv(key, default)
+        val = st.secrets[key]
+        if val is not None:
+            return str(val).strip()
+    except Exception:
+        pass
+    return os.getenv(key, default)
 
 # --- Config ---
 ASSETS_DIR = "assets"
