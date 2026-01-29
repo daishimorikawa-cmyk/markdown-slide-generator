@@ -118,25 +118,41 @@ def _generate_google_image(prompt, filepath, model_name, aspect_ratio):
 
 def _generate_mock_image(prompt, width, height, filepath):
     """Generates a placeholder image using Pillow."""
-    # Create simple background
-    color = (240, 240, 255) # Light blueish gray
-    img = Image.new('RGB', (width, height), color=color)
+    # Soft gradient-like background using horizontal bands
+    img = Image.new('RGB', (width, height), color=(225, 235, 250))
     d = ImageDraw.Draw(img)
-    
-    # Draw border
-    d.rectangle([10, 10, width-10, height-10], outline=(100, 100, 200), width=5)
-    
-    # Add Text (Prompt)
+
+    # Subtle gradient effect
+    for y in range(height):
+        r = int(225 - (y / height) * 25)
+        g = int(235 - (y / height) * 15)
+        b = int(250 - (y / height) * 10)
+        d.line([(0, y), (width, y)], fill=(r, g, b))
+
+    # Decorative shapes
+    cx, cy = width // 2, height // 2
+    radius = min(width, height) // 5
+    d.ellipse(
+        [cx - radius, cy - radius, cx + radius, cy + radius],
+        fill=(200, 215, 240), outline=(160, 180, 220), width=3
+    )
+    r2 = radius // 2
+    d.ellipse(
+        [cx - r2, cy - r2, cx + r2, cy + r2],
+        fill=(180, 200, 230)
+    )
+
+    # Small accent dots
+    for ox, oy in [(-1.4, -0.6), (1.4, 0.6), (-0.5, 1.3), (0.5, -1.3)]:
+        dx = int(cx + radius * ox)
+        dy = int(cy + radius * oy)
+        d.ellipse([dx - 12, dy - 12, dx + 12, dy + 12], fill=(190, 210, 240))
+
+    # Label
     try:
-        font = ImageFont.truetype("arial.ttf", 20)
+        font = ImageFont.truetype("arial.ttf", 14)
     except IOError:
         font = ImageFont.load_default()
-        
-    text = f"AI Image Placeholder\n(Provider: {os.getenv('IMAGE_PROVIDER', 'mock')})\n\nPrompt:\n{prompt[:200]}..."
-    
-    d.text((50, 50), text, fill=(50, 50, 50), font=font)
-    
-    # Visual shape
-    d.ellipse([width//2 - 50, height//2 - 50, width//2 + 50, height//2 + 50], fill=(200, 200, 250))
-    
+    d.text((20, height - 35), "AI Image Placeholder", fill=(130, 150, 185), font=font)
+
     img.save(filepath)
