@@ -2,115 +2,224 @@ from pptx import Presentation
 from pptx.util import Inches, Pt
 from pptx.dml.color import RGBColor
 from pptx.enum.text import PP_ALIGN
+from pptx.enum.shapes import MSO_SHAPE
+import os
 
-def generate_pptx(plan, image_paths, output_path="presentation.pptx"):
+
+def _hex_to_rgb(hex_color):
+    """Convert hex color string to RGBColor."""
+    hex_color = hex_color.lstrip('#')
+    if len(hex_color) != 6:
+        return RGBColor(43, 87, 154)  # fallback blue
+    r = int(hex_color[0:2], 16)
+    g = int(hex_color[2:4], 16)
+    b = int(hex_color[4:6], 16)
+    return RGBColor(r, g, b)
+
+
+def _set_slide_bg(slide, rgb_color):
+    """Set solid background color for a slide."""
+    bg = slide.background
+    fill = bg.fill
+    fill.solid()
+    fill.fore_color.rgb = rgb_color
+
+
+def _add_title_bar(slide, slide_width, title_text, bar_color, font_name):
+    """Add a colored title bar with text at the top of a slide."""
+    bar_h = Inches(1.1)
+    bar = slide.shapes.add_shape(
+        MSO_SHAPE.RECTANGLE, Inches(0), Inches(0), slide_width, bar_h
+    )
+    bar.fill.solid()
+    bar.fill.fore_color.rgb = bar_color
+    bar.line.fill.background()
+
+    tx = slide.shapes.add_textbox(
+        Inches(0.7), Inches(0.15), slide_width - Inches(1.4), Inches(0.8)
+    )
+    tf = tx.text_frame
+    tf.word_wrap = True
+    p = tf.paragraphs[0]
+    p.text = title_text
+    p.font.size = Pt(28)
+    p.font.color.rgb = RGBColor(255, 255, 255)
+    p.font.bold = True
+    p.font.name = font_name
+
+
+def _add_bullets(slide, bullets, left, top, width, height, font_name):
+    """Add a bullet list text box to the slide."""
+    tx = slide.shapes.add_textbox(left, top, width, height)
+    tf = tx.text_frame
+    tf.word_wrap = True
+    first = True
+    for b in bullets:
+        if first:
+            p = tf.paragraphs[0]
+            first = False
+        else:
+            p = tf.add_paragraph()
+        p.text = f"\u2022 {b}"
+        p.font.size = Pt(20)
+        p.font.color.rgb = RGBColor(51, 51, 51)
+        p.font.name = font_name
+        p.space_after = Pt(12)
+
+
+def generate_pptx(plan, image_paths, output_path="presentation.pptx", title="Presentation"):
     """
     Generates PPTX based on the AI plan and generated images.
+
+    Args:
+        plan (dict): Design plan from AI planner.
+        image_paths (dict): Mapping of slide index to image file path.
+        output_path (str): Output file path.
+        title (str): Presentation title for the cover slide.
     """
     prs = Presentation()
-    
+    # Widescreen 16:9
+    prs.slide_width = Inches(13.333)
+    prs.slide_height = Inches(7.5)
+
     # Extract theme
     theme = plan.get('theme', {})
     font_name = theme.get('font', 'Arial')
-    primary_color_hex = theme.get('primary_color', '#000000').lstrip('#')
-    
-    # 1. Title Slide (Slide 0 in plan?, usually we generate a cover manually or it's first in slides)
-    # The parser puts the main title in 'title' field of parsed data, but plan has 'slides'
-    # Let's assume the user wants the first slide in 'slides' to be content. 
-    # But wait, Markdown parser extracted a global "Title".
-    # Usually we want a Cover Slide.
-    
-    # Let's check if the Plan includes a Cover. 
-    # Current ai_planner prompts for "slides" based on content.
-    # We should add a generic Title Slide first.
-    
-    # slide_layout 0: Title Slide
-    slide = prs.slides.add_slide(prs.slide_layouts[0])
-    title = slide.shapes.title
-    title.text = "Presentation" # We need the main title passed here or in plan
-    # The plan structure in my ai_planner doesn't explicitly carry the Top Level Title.
-    # I should pass it. 
-    
-    # ADJUSTMENT: Let's assume the calling 'app.py' passes the main title or it's implicitly handled.
-    # For now, I'll allow a "title" argument or just take the first slide.
-    
-    # Clean output slides
-    # Let's iterate through the PLAN's slides.
-    
-    for i, slide_data in enumerate(plan['slides']):
-        layout_type = slide_data.get('layout', 'title_bullets')
-        
-        # Select Layout
-        if layout_type == 'hero_image':
-             # Blank layout, manual placement
-             slide = prs.slides.add_slide(prs.slide_layouts[6]) 
-        elif layout_type == 'title_bullets_image_right':
-            # Title and Content (we will resize content)
-            slide = prs.slides.add_slide(prs.slide_layouts[1])
-        else:
-            # Standard Title and Content
-            slide = prs.slides.add_slide(prs.slide_layouts[1])
-            
-        # --- Content Generation ---
-        
-        # 1. Images
-        # Check if we have an image for this slide index
-        image_path = image_paths.get(i)
-        
-        if layout_type == 'hero_image' and image_path:
-            # Full screen image
-            left = top = Inches(0)
-            pic = slide.shapes.add_picture(image_path, left, top, height=prs.slide_height)
-            # Center horizontally if aspect ratio differs
-            if pic.width < prs.slide_width:
-                 pic.left = (prs.slide_width - pic.width) // 2
-            
-            # Overlay Title
-            txBox = slide.shapes.add_textbox(Inches(1), Inches(3), Inches(8), Inches(2))
-            tf = txBox.text_frame
-            p = tf.add_paragraph()
-            p.text = slide_data['title']
-            p.font.size = Pt(54)
-            p.font.color.rgb = RGBColor(255, 255, 255)
-            p.font.bold = True
-            p.alignment = PP_ALIGN.CENTER
-            
-        elif layout_type == 'title_bullets_image_right':
-            # Title
-            slide.shapes.title.text = slide_data['title']
-            
-            # Bullets (Left side)
-            # Resize placeholder
-            body = slide.shapes.placeholders[1]
-            body.left = Inches(0.5)
-            body.width = Inches(4.5) # Half width roughly
-            
-            tf = body.text_frame
-            tf.clear() # Clear default empty paragraph
-            for bullet in slide_data['bullets']:
-                p = tf.add_paragraph()
-                p.text = bullet
-                p.level = 0
-                p.font.size = Pt(20)
+    primary = _hex_to_rgb(theme.get('primary_color', '#2B579A'))
+    secondary = _hex_to_rgb(theme.get('secondary_color', '#4472C4'))
 
-            # Image (Right side)
-            if image_path:
-                left = Inches(5.2)
-                top = Inches(2)
-                # Height constraint
-                height = Inches(4) 
-                slide.shapes.add_picture(image_path, left, top, height=height)
-                
-        else: # Standard or Title Only
-            slide.shapes.title.text = slide_data['title']
-            
-            if 'bullets' in slide_data and slide_data['bullets']:
-                tf = slide.shapes.placeholders[1].text_frame
-                tf.clear()
-                for bullet in slide_data['bullets']:
-                    p = tf.add_paragraph()
-                    p.text = bullet
-                    p.level = 0
-    
+    # ── Cover Slide ──
+    cover = prs.slides.add_slide(prs.slide_layouts[6])  # Blank
+    _set_slide_bg(cover, primary)
+
+    # Accent line
+    accent = cover.shapes.add_shape(
+        MSO_SHAPE.RECTANGLE,
+        Inches(1.2), Inches(4.0),
+        Inches(2.5), Inches(0.06)
+    )
+    accent.fill.solid()
+    accent.fill.fore_color.rgb = RGBColor(255, 255, 255)
+    accent.line.fill.background()
+
+    # Cover title
+    tx = cover.shapes.add_textbox(
+        Inches(1.2), Inches(2.2), Inches(10), Inches(1.6)
+    )
+    tf = tx.text_frame
+    tf.word_wrap = True
+    p = tf.paragraphs[0]
+    p.text = title
+    p.font.size = Pt(44)
+    p.font.color.rgb = RGBColor(255, 255, 255)
+    p.font.bold = True
+    p.font.name = font_name
+    p.alignment = PP_ALIGN.LEFT
+
+    # ── Content Slides ──
+    for i, sd in enumerate(plan['slides']):
+        layout = sd.get('layout', 'title_bullets')
+        img = image_paths.get(i)
+        if img and not os.path.exists(img):
+            img = None
+
+        if layout == 'hero_image':
+            _build_hero(prs, sd, img, font_name)
+        elif layout == 'title_bullets_image_right':
+            _build_image_right(prs, sd, img, primary, font_name)
+        else:
+            _build_standard(prs, sd, img, primary, font_name)
+
     prs.save(output_path)
     return output_path
+
+
+def _build_hero(prs, sd, img, font_name):
+    """Hero slide: full-screen image with title overlay."""
+    slide = prs.slides.add_slide(prs.slide_layouts[6])
+
+    if img:
+        slide.shapes.add_picture(
+            img, Inches(0), Inches(0),
+            width=prs.slide_width, height=prs.slide_height
+        )
+
+    # Dark overlay bar at bottom
+    ov = slide.shapes.add_shape(
+        MSO_SHAPE.RECTANGLE,
+        Inches(0), Inches(5.0),
+        prs.slide_width, Inches(2.5)
+    )
+    ov.fill.solid()
+    ov.fill.fore_color.rgb = RGBColor(0, 0, 0)
+    ov.line.fill.background()
+
+    # Title text
+    tx = slide.shapes.add_textbox(
+        Inches(1), Inches(5.3), Inches(11), Inches(1.8)
+    )
+    tf = tx.text_frame
+    tf.word_wrap = True
+    p = tf.paragraphs[0]
+    p.text = sd['title']
+    p.font.size = Pt(40)
+    p.font.color.rgb = RGBColor(255, 255, 255)
+    p.font.bold = True
+    p.font.name = font_name
+    p.alignment = PP_ALIGN.LEFT
+
+
+def _build_image_right(prs, sd, img, primary, font_name):
+    """Title bar + bullets on left + image on right."""
+    slide = prs.slides.add_slide(prs.slide_layouts[6])
+    _add_title_bar(slide, prs.slide_width, sd['title'], primary, font_name)
+
+    bullets = sd.get('bullets', [])
+    content_top = Inches(1.5)
+    content_h = Inches(5.5)
+
+    if img:
+        # Bullets on left, image on right
+        _add_bullets(
+            slide, bullets,
+            Inches(0.7), content_top, Inches(7.0), content_h,
+            font_name
+        )
+        slide.shapes.add_picture(
+            img, Inches(8.0), content_top, height=content_h
+        )
+    else:
+        # Full width bullets
+        _add_bullets(
+            slide, bullets,
+            Inches(0.7), content_top, Inches(11.5), content_h,
+            font_name
+        )
+
+
+def _build_standard(prs, sd, img, primary, font_name):
+    """Standard slide: title bar + bullets, with optional image on right."""
+    slide = prs.slides.add_slide(prs.slide_layouts[6])
+    _add_title_bar(slide, prs.slide_width, sd['title'], primary, font_name)
+
+    bullets = sd.get('bullets', [])
+    content_top = Inches(1.5)
+    content_h = Inches(5.5)
+
+    if img:
+        # Bullets on left, image on right
+        _add_bullets(
+            slide, bullets,
+            Inches(0.7), content_top, Inches(7.0), content_h,
+            font_name
+        )
+        slide.shapes.add_picture(
+            img, Inches(8.0), content_top, height=content_h
+        )
+    else:
+        # Full width bullets
+        _add_bullets(
+            slide, bullets,
+            Inches(0.7), content_top, Inches(11.5), content_h,
+            font_name
+        )

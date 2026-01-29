@@ -79,7 +79,7 @@ def _create_fallback_plan(parsed_data):
         slides.append({
             "title": s['title'],
             "bullets": s['bullets'],
-            "layout": "title_bullets", # Default safe layout
+            "layout": "title_bullets_image_right",
             "image": {
                 "type": "placeholder",
                 "prompt": "Placeholder image",

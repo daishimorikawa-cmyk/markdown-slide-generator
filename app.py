@@ -102,7 +102,7 @@ def main():
             
             # 4. Build PPTX
             status.write("🔨 Building PowerPoint...")
-            output_path = generate_pptx(plan, image_paths, OUTPUT_FILENAME)
+            output_path = generate_pptx(plan, image_paths, OUTPUT_FILENAME, title=parsed_data['title'])
             
             status.update(label="✅ Complete!", state="complete", expanded=False)
             
