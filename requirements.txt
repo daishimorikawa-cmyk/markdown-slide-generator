@@ -2,4 +2,3 @@ streamlit
 python-pptx
 google-generativeai
 Pillow
-python-dotenv

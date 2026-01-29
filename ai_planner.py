@@ -8,13 +8,14 @@ def generate_slide_plan(parsed_data, api_key=None):
     Generates a JSON plan for the presentation using Gemini.
     """
     if not api_key:
-        # Fallback to st.secrets or env if not provided specifically
-        api_key = os.getenv("GEMINI_API_KEY")
-    
+        # Fallback: st.secrets → os.getenv
+        try:
+            api_key = st.secrets["GOOGLE_API_KEY"]
+        except (KeyError, FileNotFoundError):
+            api_key = os.getenv("GOOGLE_API_KEY")
+
     if not api_key:
-         # For demo purposes, if no key, return a mock plan based on content?
-         # Or raise error. Let's raise error to prompt user.
-         raise ValueError("Gemini API Key is missing. Please provide it in the sidebar.")
+        raise ValueError("GOOGLE_API_KEY が設定されていません。Streamlit Cloud の Secrets に設定してください。")
 
     genai.configure(api_key=api_key)
     

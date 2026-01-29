@@ -3,15 +3,19 @@ import io
 import os
 import json
 import shutil
-from dotenv import load_dotenv
-
-# Load Environment Variables
-load_dotenv()
 
 from markdown_parser import parse_markdown
 from ai_planner import generate_slide_plan
 from image_generator import generate_images
 from slide_builder import generate_pptx
+
+
+def _get_secret(key, default=None):
+    """st.secrets を優先し、なければ os.getenv にフォールバック。"""
+    try:
+        return st.secrets[key]
+    except (KeyError, FileNotFoundError):
+        return os.getenv(key, default)
 
 # --- Config ---
 ASSETS_DIR = "assets"
@@ -22,16 +26,10 @@ def main():
     
     st.title("✨ AI PowerPoint Generator (Google Nano Banana Edition)")
     
-    # Check API Key
-    google_api_key = os.getenv("GOOGLE_API_KEY")
+    # Check API Key (st.secrets → os.getenv)
+    google_api_key = _get_secret("GOOGLE_API_KEY")
     if not google_api_key:
-        st.error("⛔ `GOOGLE_API_KEY` が設定されていません。 `.env` ファイルを作成してください。")
-        st.markdown("""
-        **Set up .env file:**
-        1. Create `.env` in the project root.
-        2. Add: `GOOGLE_API_KEY=your_key_here`
-        3. Restart the app.
-        """)
+        st.error("⛔ `GOOGLE_API_KEY` が設定されていません。Streamlit Cloud の Settings → Secrets に GOOGLE_API_KEY を設定してください。")
         st.stop()
 
     st.markdown("Markdown → AI Plan → AI Images (Nano Banana) → PPTX")
@@ -39,11 +37,14 @@ def main():
     # Sidebar
     with st.sidebar:
         st.header("Settings")
-        st.success("API Key Loaded from .env")
-        
-        # Optional Overrides (readonly mostly)
-        st.text_input("Image Model", value=os.getenv("IMAGE_MODEL_NAME", "nano-banana"), disabled=True)
-        st.text_input("Provider", value=os.getenv("IMAGE_PROVIDER", "google"), disabled=True)
+        st.success("API Key Loaded")
+
+        # Read config via st.secrets → os.getenv
+        image_model = _get_secret("IMAGE_MODEL_NAME", "nano-banana")
+        image_provider = _get_secret("IMAGE_PROVIDER", "google")
+
+        st.text_input("Image Model", value=image_model, disabled=True)
+        st.text_input("Provider", value=image_provider, disabled=True)
 
     # Input Area
     default_text = """# 税務DX提案
@@ -82,14 +83,18 @@ def main():
             st.json(plan, expanded=False)
             
             # 3. Images (AI - Nano Banana / Google)
-            status.write(f"🎨 Generating Images (Model: {os.getenv('IMAGE_MODEL_NAME', 'nano-banana')})...")
+            status.write(f"🎨 Generating Images (Model: {image_model})...")
             # Cleanup old assets
             if os.path.exists(ASSETS_DIR):
                 shutil.rmtree(ASSETS_DIR)
-            
-            # Key is handled via env inside generate_images (or we could pass it)
-            # generate_images internally reads env if not passed, but we ensured env is loaded.
-            image_paths = generate_images(plan, output_dir=ASSETS_DIR)
+
+            image_paths = generate_images(
+                plan,
+                output_dir=ASSETS_DIR,
+                api_key=google_api_key,
+                provider=image_provider,
+                model_name=image_model,
+            )
             
             # Show previews
             if image_paths:

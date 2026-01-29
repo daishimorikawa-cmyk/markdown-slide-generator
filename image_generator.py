@@ -1,30 +1,29 @@
 import os
 import io
-import warnings
 from PIL import Image, ImageDraw, ImageFont
 import google.generativeai as genai
-from dotenv import load_dotenv
 
-# Load env in case this module is imported independently
-load_dotenv()
 
-def generate_images(plan, output_dir="assets"):
+def generate_images(plan, output_dir="assets", api_key=None, provider=None, model_name=None):
     """
     Generates images based on the plan using the configured provider.
-    
+
     Args:
         plan (dict): The presentation plan containing image prompts.
         output_dir (str): Directory to save images.
+        api_key (str): Google API key. Falls back to os.getenv if None.
+        provider (str): Image provider name. Falls back to os.getenv if None.
+        model_name (str): Image model name. Falls back to os.getenv if None.
     """
     if not os.path.exists(output_dir):
         os.makedirs(output_dir)
-        
+
     generated_paths = {}
-    
-    # Configuration
-    api_key = os.getenv("GOOGLE_API_KEY")
-    provider = os.getenv("IMAGE_PROVIDER", "google")
-    model_name = os.getenv("IMAGE_MODEL_NAME", "nano-banana") # User requested default
+
+    # Configuration (use passed values; fall back to env for backward compat)
+    api_key = api_key or os.getenv("GOOGLE_API_KEY")
+    provider = provider or os.getenv("IMAGE_PROVIDER", "google")
+    model_name = model_name or os.getenv("IMAGE_MODEL_NAME", "nano-banana")
     
     if provider == "google" and api_key:
         genai.configure(api_key=api_key)
