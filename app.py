@@ -4,6 +4,13 @@ import os
 import json
 import shutil
 
+# ローカル開発用: .env があれば読み込む（なくても動く）
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass
+
 from markdown_parser import parse_markdown
 from ai_planner import generate_slide_plan
 from image_generator import generate_images
@@ -11,11 +18,14 @@ from slide_builder import generate_pptx
 
 
 def _get_secret(key, default=None):
-    """st.secrets を優先し、なければ os.getenv にフォールバック。"""
+    """st.secrets → os.getenv の順で取得。"""
     try:
-        return st.secrets[key]
-    except (KeyError, FileNotFoundError):
-        return os.getenv(key, default)
+        val = st.secrets[key]
+        if val:
+            return val
+    except Exception:
+        pass
+    return os.getenv(key, default)
 
 # --- Config ---
 ASSETS_DIR = "assets"

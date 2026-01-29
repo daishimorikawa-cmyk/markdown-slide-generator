@@ -11,7 +11,7 @@ def generate_slide_plan(parsed_data, api_key=None):
         # Fallback: st.secrets → os.getenv
         try:
             api_key = st.secrets["GOOGLE_API_KEY"]
-        except (KeyError, FileNotFoundError):
+        except Exception:
             api_key = os.getenv("GOOGLE_API_KEY")
 
     if not api_key:
