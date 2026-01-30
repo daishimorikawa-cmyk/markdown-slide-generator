@@ -53,6 +53,7 @@ def main():
         st.text_input("Text Model", value=text_model, disabled=True)
         st.text_input("Image Model", value=image_model, disabled=True)
         st.text_input("Provider", value=image_provider, disabled=True)
+        st.caption("Last updated: 2025-01-30")
 
     # Input Area
     default_text = """# 税務DX提案
