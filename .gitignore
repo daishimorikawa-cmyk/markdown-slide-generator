@@ -4,6 +4,9 @@ __pycache__/
 *.py[cod]
 *$py.class
 
+# Node.js
+node_modules/
+
 # Secrets
 .env
 .streamlit/secrets.toml
@@ -13,3 +16,4 @@ assets/
 
 # Output
 *.pptx
+out/

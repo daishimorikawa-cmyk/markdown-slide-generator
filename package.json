@@ -1,0 +1,19 @@
+{
+  "name": "markdown-slide-generator-cli",
+  "version": "1.0.0",
+  "description": "CLI tool to generate PPTX presentations from Markdown with DALL·E 3 generated images",
+  "main": "cli.js",
+  "type": "module",
+  "scripts": {
+    "generate": "node cli.js",
+    "example": "node cli.js input.md out/presentation.pptx"
+  },
+  "keywords": ["markdown", "pptx", "powerpoint", "dall-e", "openai", "slides"],
+  "license": "MIT",
+  "dependencies": {
+    "dotenv": "^16.4.7",
+    "openai": "^4.78.1",
+    "pptxgenjs": "^3.12.0",
+    "zod": "^3.24.1"
+  }
+}
