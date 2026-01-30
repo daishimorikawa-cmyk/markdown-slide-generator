@@ -4,7 +4,6 @@ Unified configuration & GCP authentication bootstrap.
 Priority: Streamlit Secrets > Environment Variables > Defaults
 """
 
-import json
 import os
 import tempfile
 
@@ -51,8 +50,6 @@ def bootstrap_gcp_auth():
 
     try:
         print("[AUTH] using sa_json from secrets")
-        # Validate that it is parseable JSON
-        json.loads(sa_json)
 
         # Write to a temp file that persists for the lifetime of the process
         tmp = tempfile.NamedTemporaryFile(
@@ -64,10 +61,6 @@ def bootstrap_gcp_auth():
 
         os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = tmp.name
         print(f"[AUTH] wrote temp credentials: {tmp.name}")
-    except json.JSONDecodeError as exc:
-        msg = f"[AUTH][ERROR] GCP_SA_JSON is not valid JSON: {exc}"
-        print(msg)
-        st.error(msg)
     except Exception as exc:
         msg = f"[AUTH][ERROR] Failed to bootstrap GCP credentials: {exc}"
         print(msg)

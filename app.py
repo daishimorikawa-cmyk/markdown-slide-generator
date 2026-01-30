@@ -37,7 +37,8 @@ def main():
         st.error(
             "⛔ 認証情報が見つかりません。\n\n"
             "Streamlit Cloud: Secrets に `GCP_SA_JSON` と `GCP_PROJECT_ID` を設定してください。\n\n"
-            "ローカル: `.env` に `GOOGLE_API_KEY` を設定してください。"
+            "ローカル: `GOOGLE_APPLICATION_CREDENTIALS`（サービスアカウント）または "
+            "`GOOGLE_API_KEY` を設定してください。"
         )
         st.stop()
 
