@@ -1,9 +1,13 @@
 """
-Phase C: Generate images for each slide using Imagen (Vertex AI).
+Phase C: Generate visuals for each slide.
+
+Routing:
+  - visual_type=SCENE  → Imagen generation (fallback: PPT shapes via slide_builder)
+  - visual_type=DIAGRAM → Skip Imagen entirely; return diagram metadata
+                           for slide_builder to draw PPT shapes
 
 Features:
-  - Retry up to 2 times with prompt simplification on failure
-  - Fallback to shape-based diagram generation when all retries fail
+  - Retry up to 2 times with prompt simplification on SCENE failure
   - Never leaves a slide without visual content
 """
 
@@ -21,11 +25,19 @@ def generate_slide_images(deck_json: dict, output_dir: str = "assets",
                           api_key=None, provider=None, model_name=None,
                           project_id=None, location=None) -> dict:
     """
-    Phase C entry point.  Generates one image per slide based on
-    ``image_prompt`` in deck_json.
+    Phase C entry point.
+
+    Routes each slide by ``visual_type``:
+      - SCENE  → Imagen (retry ×2, fallback → type="fallback_scene")
+      - DIAGRAM → no Imagen call; returns diagram metadata for slide_builder
 
     Returns:
-        dict mapping slide index → {"path": str, "type": "imagen"|"fallback_shape"}
+        dict mapping slide index → {
+            "path": str|None,
+            "type": "imagen"|"diagram"|"fallback_scene",
+            "diagram_type": str,   # only when type=="diagram"
+            "diagram_data": dict,  # only when type=="diagram"
+        }
     """
     os.makedirs(output_dir, exist_ok=True)
 
@@ -47,9 +59,28 @@ def generate_slide_images(deck_json: dict, output_dir: str = "assets",
     results: dict = {}
     slides = deck_json.get("slides", [])
 
+    print(f"[JSON] slides={len(slides)}")
+
     for i, slide in enumerate(slides):
-        prompt = slide.get("image_prompt", "")
+        visual_type = slide.get("visual_type", "SCENE").upper()
         layout = slide.get("layout", "TITLE_LEFT_IMAGE_RIGHT")
+
+        # ── DIAGRAM: skip Imagen entirely, pass metadata to slide_builder ──
+        if visual_type == "DIAGRAM":
+            diagram_type = slide.get("diagram_type", "FLOW_SIMPLE")
+            diagram_data = slide.get("diagram_data", {})
+            print(f"[VISUAL] i={i + 1} type=DIAGRAM diagram_type={diagram_type}")
+            results[i] = {
+                "path": None,
+                "type": "diagram",
+                "diagram_type": diagram_type,
+                "diagram_data": diagram_data,
+            }
+            continue
+
+        # ── SCENE: attempt Imagen generation ──
+        prompt = slide.get("scene_prompt", "") or slide.get("image_prompt", "")
+        print(f"[VISUAL] i={i + 1} type=SCENE prompt={prompt[:80]}")
 
         # Determine image size
         if layout == "IMAGE_FULL_TEXT_BOTTOM":
@@ -61,7 +92,6 @@ def generate_slide_images(deck_json: dict, output_dir: str = "assets",
 
         filepath = os.path.join(output_dir, f"slide_{i + 1}.png")
 
-        # ── Attempt Imagen generation with retries ──
         success = _generate_with_retries(
             prompt=prompt,
             filepath=filepath,
@@ -79,13 +109,12 @@ def generate_slide_images(deck_json: dict, output_dir: str = "assets",
             results[i] = {"path": filepath, "type": "imagen"}
             print(f"[IMG] slide={i + 1} type=imagen")
         else:
-            # ── Fallback: generate shape-based diagram ──
-            print(f"[IMG] slide={i + 1} all retries failed, generating fallback shapes")
-            _generate_shape_fallback(
-                slide=slide, width=width, height=height, filepath=filepath
-            )
-            results[i] = {"path": filepath, "type": "fallback_shape"}
-            print(f"[IMG] slide={i + 1} type=fallback_shape")
+            # ── Fallback: signal slide_builder to draw PPT shapes ──
+            print(f"[IMG][ERROR] slide={i + 1} all retries failed → fallback_scene")
+            results[i] = {
+                "path": None,
+                "type": "fallback_scene",
+            }
 
     return results
 
@@ -122,7 +151,7 @@ def _generate_with_retries(prompt, filepath, aspect_ratio, model_name,
             print(f"[IMG][ERROR] slide={slide_index + 1} file empty/missing after generation")
 
         if attempt < len(prompts) - 1:
-            print(f"[IMG][ERROR] slide={slide_index + 1} retry={attempt + 1}/2")
+            print(f"[IMG][ERROR] slide={slide_index + 1} retry={attempt + 1}/{len(prompts) - 1}")
 
     return False
 
