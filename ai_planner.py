@@ -1,38 +1,89 @@
-import google.generativeai as genai
 import json
 import os
-import streamlit as st
 
-def generate_slide_plan(parsed_data, api_key=None):
+from config import get_setting, is_vertex_mode
+
+
+def generate_slide_plan(parsed_data, api_key=None, project_id=None,
+                        location=None, model_name=None):
     """
     Generates a JSON plan for the presentation using Gemini.
+
+    Auth priority:
+      1. Vertex AI (service account) – when GCP_PROJECT_ID +
+         GOOGLE_APPLICATION_CREDENTIALS are present.
+      2. Google Generative AI (API key) – legacy / local mode.
     """
-    if not api_key:
-        # Fallback: st.secrets → os.getenv
+    project_id = project_id or get_setting("GCP_PROJECT_ID")
+    location = location or get_setting("GCP_LOCATION", "us-central1")
+    model_name = model_name or get_setting("TEXT_MODEL_NAME", "gemini-1.5-flash-002")
+    api_key = api_key or get_setting("GOOGLE_API_KEY")
+
+    use_vertex = bool(
+        project_id and os.environ.get("GOOGLE_APPLICATION_CREDENTIALS")
+    )
+
+    prompt = _build_prompt(parsed_data)
+
+    # ------------------------------------------------------------------
+    # Vertex AI path
+    # ------------------------------------------------------------------
+    if use_vertex:
+        print(f"[PLAN] Using Vertex AI (project={project_id}, location={location}, model={model_name})")
         try:
-            val = st.secrets["GOOGLE_API_KEY"]
-            if val is not None:
-                api_key = str(val).strip()
-        except Exception:
-            pass
-        if not api_key:
-            api_key = os.getenv("GOOGLE_API_KEY")
+            import vertexai
+            from vertexai.generative_models import GenerativeModel
 
-    if not api_key:
-        raise ValueError("GOOGLE_API_KEY が設定されていません。Streamlit Cloud の Secrets に設定してください。")
+            vertexai.init(project=project_id, location=location)
+            model = GenerativeModel(model_name)
+            response = model.generate_content(
+                prompt,
+                generation_config={"response_mime_type": "application/json"},
+            )
+            return json.loads(response.text)
+        except Exception as e:
+            print(f"[PLAN][ERROR] Vertex AI failed: {e}")
+            # Fall through to API-key path if available, else fallback
+            if not api_key:
+                print("[PLAN] No API key fallback available, using fallback plan")
+                return _create_fallback_plan(parsed_data)
 
-    genai.configure(api_key=api_key)
-    
-    # Use a model that is good at JSON
-    model = genai.GenerativeModel('gemini-1.5-flash') 
+    # ------------------------------------------------------------------
+    # API-key path (local / legacy)
+    # ------------------------------------------------------------------
+    if api_key:
+        print(f"[PLAN] Using API key mode (model={model_name})")
+        try:
+            import google.generativeai as genai
 
-    prompt = f"""
+            genai.configure(api_key=api_key)
+            model = genai.GenerativeModel(model_name)
+            response = model.generate_content(
+                prompt,
+                generation_config={"response_mime_type": "application/json"},
+            )
+            return json.loads(response.text)
+        except Exception as e:
+            print(f"[PLAN][ERROR] API-key Gemini failed: {e}")
+            return _create_fallback_plan(parsed_data)
+
+    # No auth at all
+    print("[PLAN][ERROR] No authentication configured")
+    return _create_fallback_plan(parsed_data)
+
+
+# ------------------------------------------------------------------
+# Prompt builder
+# ------------------------------------------------------------------
+
+def _build_prompt(parsed_data):
+    return f"""
     You are an expert presentation designer.
     Create a detailed design plan for a PowerPoint presentation based on the following content.
-    
+
     Input Content:
     {json.dumps(parsed_data, ensure_ascii=False)}
-    
+
     Requirements:
     1. Output MUST be a valid JSON object.
     2. Theme: Choose a professional "flat illustration" style.
@@ -45,7 +96,7 @@ def generate_slide_plan(parsed_data, api_key=None):
          - 'aspect_ratio': "16:9" or "1:1" (use 1:1 for side images, 16:9 for hero).
     5. 'bullets': Keep the original bullets. If a slide has too many bullets (more than 5), you don't need to split them here; the builder will handle it, but you should ensure the layout fits.
     6. Simplify the prompt to avoid text in images.
-    
+
     Output Format (JSON Only):
     {{
       "theme": {{
@@ -68,14 +119,11 @@ def generate_slide_plan(parsed_data, api_key=None):
       ]
     }}
     """
-    
-    try:
-        response = model.generate_content(prompt, generation_config={"response_mime_type": "application/json"})
-        return json.loads(response.text)
-    except Exception as e:
-        # Fallback manual plan if AI fails
-        print(f"AI Planning failed: {e}")
-        return _create_fallback_plan(parsed_data)
+
+
+# ------------------------------------------------------------------
+# Fallback plan (no AI)
+# ------------------------------------------------------------------
 
 def _create_fallback_plan(parsed_data):
     """Creates a basic plan without AI intelligence if API fails."""
@@ -91,7 +139,7 @@ def _create_fallback_plan(parsed_data):
                 "aspect_ratio": "16:9"
             }
         })
-    
+
     return {
         "theme": {
             "style": "simple",
