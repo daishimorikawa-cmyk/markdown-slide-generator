@@ -1,103 +1,119 @@
-import google.generativeai as genai
 import json
 import os
 import streamlit as st
+from openai import OpenAI
 
-def generate_slide_plan(parsed_data, api_key=None):
+def _get_api_key(api_key=None):
     """
-    Generates a JSON plan for the presentation using Gemini.
+    Retrieves OpenAI API Key from args, secrets, or env.
     """
-    if not api_key:
-        # Fallback: st.secrets → os.getenv
-        try:
-            val = st.secrets["GOOGLE_API_KEY"]
-            if val is not None:
-                api_key = str(val).strip()
-        except Exception:
-            pass
-        if not api_key:
-            api_key = os.getenv("GOOGLE_API_KEY")
-
-    if not api_key:
-        raise ValueError("GOOGLE_API_KEY が設定されていません。Streamlit Cloud の Secrets に設定してください。")
-
-    genai.configure(api_key=api_key)
+    if api_key:
+        return api_key
     
-    # Use a model that is good at JSON
-    model = genai.GenerativeModel('gemini-1.5-flash') 
-
-    prompt = f"""
-    You are an expert presentation designer.
-    Create a detailed design plan for a PowerPoint presentation based on the following content.
-    
-    Input Content:
-    {json.dumps(parsed_data, ensure_ascii=False)}
-    
-    Requirements:
-    1. Output MUST be a valid JSON object.
-    2. Theme: Choose a professional "flat illustration" style.
-    3. Colors: Pick a primary and secondary color suitable for business.
-    4. For EACH slide:
-       - 'layout': Choose one of ["title_only", "title_bullets", "title_bullets_image_right", "hero_image"].
-       - 'image': Define an image prompt.
-         - 'type': "illustration"
-         - 'prompt': A detailed ENGLISH prompt for an AI image generator describing a flat illustration style image.
-         - 'aspect_ratio': "16:9" or "1:1" (use 1:1 for side images, 16:9 for hero).
-    5. 'bullets': Keep the original bullets. If a slide has too many bullets (more than 5), you don't need to split them here; the builder will handle it, but you should ensure the layout fits.
-    6. Simplify the prompt to avoid text in images.
-    
-    Output Format (JSON Only):
-    {{
-      "theme": {{
-        "style": "flat illustration",
-        "primary_color": "#Hex",
-        "secondary_color": "#Hex",
-        "font": "Arial"
-      }},
-      "slides": [
-        {{
-          "title": "Slide Title",
-          "bullets": ["Point 1", "Point 2"],
-          "layout": "title_bullets_image_right",
-          "image": {{
-            "type": "illustration",
-            "prompt": "flat illustration of ..., minimal, white background",
-            "aspect_ratio": "1:1"
-          }}
-        }}
-      ]
-    }}
-    """
-    
+    # Try Streamlit Secrets
     try:
-        response = model.generate_content(prompt, generation_config={"response_mime_type": "application/json"})
-        return json.loads(response.text)
+        if hasattr(st, "secrets") and "OPENAI_API_KEY" in st.secrets:
+            return st.secrets["OPENAI_API_KEY"]
+    except Exception:
+        pass
+    
+    # Try Environment Variable
+    return os.getenv("OPENAI_API_KEY")
+
+def generate_slide_plan(parsed_data, api_key=None, model="gpt-4o"):
+    """
+    Generates a JSON plan for the presentation using OpenAI API.
+    """
+    final_api_key = _get_api_key(api_key)
+    
+    if not final_api_key:
+        raise ValueError("OPENAI_API_KEY is not set. Please set it in Streamlit Secrets or environment variables.")
+
+    client = OpenAI(api_key=final_api_key)
+
+    system_prompt = """You are an expert presentation designer creating slides for a **VIDEO presentation**.
+Since there is no live speaker, **all key explanations must be visible ON THE SLIDE**.
+
+## ⚠️ Video Presentation Rules
+1. **One-Claim per Slide**: Each slide must have exactly ONE main message. Split slides if necessary.
+2. **Self-Explanatory**: The slide body must contain sentences (not just bullets) that explain the "Why" and "How".
+3. **Concrete & Specific**: Avoid abstract jargon. Instead of "Optimization", say "Reduces processing time by 50%".
+4. **Structure**: Create 6-8 slides following this flow: Conclusion -> Problem -> Cause -> Solution -> Effect -> Steps -> Next Action.
+
+## Slide Structure (JSON Fields)
+For each slide, generate:
+- **title**: Short headline (Max 20 chars, Japanese). 1 line.
+- **takeaway**: A single concluding sentence (15-30 chars).
+    - Format: "結論：〜により、〜を実現します。"
+- **bullets**: Key points (Max 3 items, <40 chars each). 1 line per item.
+- **body**: **CRITICAL**. Explanatory text displayed on the slide.
+    - 90-140 characters (Japanese).
+    - 2-3 sentences.
+    - MUST include "What/How", "Specific Example", and "Effect".
+    - Do NOT copy the input Markdown. Rewrite it to be conversational yet professional.
+    - Long text is PROHIBITED.
+- **image**:
+    - Prompt for a flat vector illustration (No text).
+    - Aspect ratio "1:1" (Square) or "4:3".
+
+## Output Format (JSON Only)
+{
+  "theme": { "style": "flat", "font": "Meiryo" },
+  "slides": [
+    {
+      "title": "入力業務の工数増大",
+      "takeaway": "結論：自動化により月20時間の創出を実現します。",
+      "bullets": [
+        "転記作業に毎日1時間を費やしている",
+        "入力ミスが週平均3件発生"
+      ],
+      "body": "現在は紙の届出書を手動でシステムに入力しており、月間で約20時間の工数ロスが発生しています。例えば、申請書1枚の転記に5分かかり、ダブルチェックも含めると負担は甚大です。この単純作業を自動化することで、本来の分析業務に時間を割けるようになります。",
+      "image": {
+        "type": "illustration",
+        "prompt": "Flat vector illustration of a tired office worker with piles of paper, minimal, white background, no text",
+        "aspect_ratio": "1:1"
+      }
+    }
+  ]
+}
+"""
+
+    user_content = json.dumps(parsed_data, ensure_ascii=False)
+
+    try:
+        response = client.chat.completions.create(
+            model=model,
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_content}
+            ],
+            response_format={"type": "json_object"}
+        )
+        
+        content = response.choices[0].message.content
+        return json.loads(content)
+        
     except Exception as e:
-        # Fallback manual plan if AI fails
         print(f"AI Planning failed: {e}")
         return _create_fallback_plan(parsed_data)
 
 def _create_fallback_plan(parsed_data):
     """Creates a basic plan without AI intelligence if API fails."""
     slides = []
-    for s in parsed_data['slides']:
+    for s in parsed_data.get('slides', []):
         slides.append({
             "title": s['title'],
-            "bullets": s['bullets'],
-            "layout": "title_bullets_image_right",
+            "bullets": s.get('bullets', []),
+            "body": "（APIエラーのため自動生成できませんでした。詳細を追加してください。）",
+            "takeaway": "結論：詳細を確認してください。",
             "image": {
                 "type": "placeholder",
                 "prompt": "Placeholder image",
-                "aspect_ratio": "16:9"
+                "aspect_ratio": "1:1"
             }
         })
     
     return {
-        "theme": {
-            "style": "simple",
-            "primary_color": "#000000",
-            "secondary_color": "#ffffff",
-            "font": "Arial"
-        },
+        "theme": {"style": "simple"},
         "slides": slides
     }

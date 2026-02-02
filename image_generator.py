@@ -1,157 +1,119 @@
 import os
 import io
-from PIL import Image, ImageDraw, ImageFont
-import google.generativeai as genai
+import requests
+import traceback
+import streamlit as st
+from openai import OpenAI
 
+# Optional: load .env locally
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except Exception:
+    pass
 
-def generate_images(plan, output_dir="assets", api_key=None, provider=None, model_name=None):
+DEBUG_IMAGES = os.environ.get("DEBUG_IMAGES", "False").lower() == "true"
+
+def _get_openai_key(api_key=None):
     """
-    Generates images based on the plan using the configured provider.
+    Retrieves OpenAI API Key from args, secrets, or env.
+    """
+    if api_key:
+        return api_key
+    
+    # Try Streamlit Secrets
+    try:
+        if hasattr(st, "secrets") and "OPENAI_API_KEY" in st.secrets:
+            return st.secrets["OPENAI_API_KEY"]
+    except Exception:
+        pass
+    
+    # Try Environment Variable
+    return os.getenv("OPENAI_API_KEY")
 
-    Args:
-        plan (dict): The presentation plan containing image prompts.
-        output_dir (str): Directory to save images.
-        api_key (str): Google API key. Falls back to os.getenv if None.
-        provider (str): Image provider name. Falls back to os.getenv if None.
-        model_name (str): Image model name. Falls back to os.getenv if None.
+STYLE_PROMPTS = {
+    "pixar": "3D render in Pixar animation style, cute, friendly, vibrant colors, soft lighting, high detail 3d render",
+    "disney": "2D animated movie style, hand-drawn look, classic animation, detailed backgrounds, expressive, magical atmosphere",
+    "infographic": "Modern flat infographic style, simple vector art, clean lines, minimalist, professional business color palette, iconic representation",
+    "graph": "Business flowchart or schematic diagram style, professional, clean abstract shapes, corporate look, isometric view",
+}
+
+def generate_images(plan, output_dir="assets", api_key=None, provider=None, model_name=None, image_style="pixar"):
+    """
+    Generates images using OpenAI (DALL-E 3).
+    Returns a dict mapping slide index (0-based) to image file path.
     """
     if not os.path.exists(output_dir):
-        os.makedirs(output_dir)
+        os.makedirs(output_dir, exist_ok=True)
 
+    final_api_key = _get_openai_key(api_key)
+    if not final_api_key:
+        st.warning("Image Generation Skipped: OPENAI_API_KEY not found.")
+        return {}
+        
+    client = OpenAI(api_key=final_api_key)
+    
     generated_paths = {}
 
-    # Configuration (use passed values; fall back to env for backward compat)
-    api_key = api_key or os.getenv("GOOGLE_API_KEY")
-    provider = provider or os.getenv("IMAGE_PROVIDER", "google")
-    model_name = model_name or os.getenv("IMAGE_MODEL_NAME", "nano-banana")
-    
-    if provider == "google" and api_key:
-        genai.configure(api_key=api_key)
-    
+    if not plan or 'slides' not in plan:
+        return {}
+        
+    # Get style prompt suffix
+    style_suffix = STYLE_PROMPTS.get(image_style, STYLE_PROMPTS["pixar"])
+
     for i, slide in enumerate(plan['slides']):
+        # Check if image is requested
         if 'image' not in slide:
             continue
-            
-        prompt = slide['image'].get('prompt', 'No prompt')
-        aspect_ratio = slide['image'].get('aspect_ratio', '16:9')
         
-        # Determine size setup for Mock
-        if aspect_ratio == '16:9':
-            width, height = 1024, 576
-        else: # 1:1 or others
-            width, height = 1024, 1024
+        image_cfg = slide['image']
+        prompt = image_cfg.get('prompt')
+        if not prompt:
+            st.warning(f"Slide {i+1}: No prompt provided. Skipping image.")
+            continue
             
+        aspect_ratio = image_cfg.get('aspect_ratio', '16:9') # 16:9 or 1:1
+        
+        # Map aspect ratio to DALL-E 3 supported sizes
+        size = "1024x1024"
+        if aspect_ratio == "16:9":
+            size = "1792x1024" # Landscape
+        
+        # Enhance prompt to avoid text
+        # Combine: {Style} + {Content} + {Negative Constraints}
+        enhanced_prompt = (
+            f"{style_suffix}. {prompt}. "
+            "IMPORTANT: Do NOT include any text, letters, numbers, or words in the image. "
+            "No layouts, no charts with text. Visual representation only. "
+            "High quality, professional."
+        )
+        
         filename = f"slide_{i+1}.png"
         filepath = os.path.join(output_dir, filename)
         
-        success = False
-        if provider == "google" and api_key:
-            success = _generate_google_image(prompt, filepath, model_name, aspect_ratio)
-        
-        if not success:
-            # Fallback to Mock if generation fails or no key
-            if api_key:
-                print(f"Warning: Image generation failed for slide {i+1}. Using placeholder.")
-            _generate_mock_image(prompt, width, height, filepath)
+        try:
+            response = client.images.generate(
+                model=model_name or "dall-e-3",
+                prompt=enhanced_prompt,
+                size=size,
+                quality="standard",
+                n=1,
+            )
             
-        generated_paths[i] = filepath
-        
-    return generated_paths
-
-def _generate_google_image(prompt, filepath, model_name, aspect_ratio):
-    """
-    Generates an image using Google Generative AI (Imagen).
-    Includes specific handling for 'nano-banana' or standard Imagen models.
-    """
-    try:
-        # Note: 'nano-banana' is likely a placeholder user model name.
-        # We will attempt to use the generic Imagen 3 generation structure via genai.
-        # Since 'nano-banana' is requested, we pass it as the model name.
-        # However, the SDK interface for Imagen 3 might differ slightly based on version.
-        # We assume `ImageGenerationModel` pattern or direct `genai.Image` pattern 
-        # isn't fully standard in the `google-generativeai` package yet (it's often Vertex).
-        # But recently `genai.u` or similar exists. 
-        # Let's try the standard `from_pretrained` pattern if available, or fall back to 
-        # model.generate_images if that exists on the model object.
-        
-        # Standard AI Studio usage currently:
-        # model = genai.GenerativeModel('imagen-3.0-generate-001')
-        # result = model.generate_content(prompt)
-        # But text-to-image is specific.
-        
-        # Assuming the user knows 'nano-banana' works with the library or we use a best-effort approach.
-        # We will try to fetch the model and check for 'generate_images' method which is common in wrappers.
-        
-        # --- IMPLEMENTATION STRATEGY ---
-        # Since we cannot be 100% sure of the SDK method for "nano-banana", we will try:
-        # 1. genai.ImageGenerationModel (if available - mostly Vertex)
-        # 2. genai.GenerativeModel(...).generate_content(...) -> checking for image parts
-        
-        # For this task, we'll try the most standard GenerativeModel approach which handles multi-modal.
-        
-        model = genai.GenerativeModel(model_name)
-        
-        # Some models require prompt to be wrapped or specific method
-        response = model.generate_content(prompt)
-        
-        # Check if response contains image
-        if hasattr(response, 'parts'):
-            for part in response.parts:
-                if hasattr(part, 'image'):
-                    # Save image
-                    img = Image.open(io.BytesIO(part.image))
-                    img.save(filepath)
-                    return True
+            image_url = response.data[0].url
+            
+            # Download the image
+            img_data = requests.get(image_url).content
+            with open(filepath, 'wb') as handler:
+                handler.write(img_data)
                 
-        # If the above doesn't work (structure differs), check for 'images' attr (Imagen specific)
-        if hasattr(response, 'images') and len(response.images) > 0:
-             # Some versions return raw images list
-             response.images[0].save(filepath)
-             return True
-             
-        return False
+            generated_paths[i] = filepath
+            
+        except Exception as e:
+            st.error(f"Slide {i+1} Image Gen Failed: {e}")
+            if DEBUG_IMAGES:
+                st.code(traceback.format_exc())
+            # Continue to next slide
+            continue
 
-    except Exception as e:
-        print(f"Google Image Gen Failed ({model_name}): {e}")
-        return False
-
-def _generate_mock_image(prompt, width, height, filepath):
-    """Generates a placeholder image using Pillow."""
-    # Soft gradient-like background using horizontal bands
-    img = Image.new('RGB', (width, height), color=(225, 235, 250))
-    d = ImageDraw.Draw(img)
-
-    # Subtle gradient effect
-    for y in range(height):
-        r = int(225 - (y / height) * 25)
-        g = int(235 - (y / height) * 15)
-        b = int(250 - (y / height) * 10)
-        d.line([(0, y), (width, y)], fill=(r, g, b))
-
-    # Decorative shapes
-    cx, cy = width // 2, height // 2
-    radius = min(width, height) // 5
-    d.ellipse(
-        [cx - radius, cy - radius, cx + radius, cy + radius],
-        fill=(200, 215, 240), outline=(160, 180, 220), width=3
-    )
-    r2 = radius // 2
-    d.ellipse(
-        [cx - r2, cy - r2, cx + r2, cy + r2],
-        fill=(180, 200, 230)
-    )
-
-    # Small accent dots
-    for ox, oy in [(-1.4, -0.6), (1.4, 0.6), (-0.5, 1.3), (0.5, -1.3)]:
-        dx = int(cx + radius * ox)
-        dy = int(cy + radius * oy)
-        d.ellipse([dx - 12, dy - 12, dx + 12, dy + 12], fill=(190, 210, 240))
-
-    # Label
-    try:
-        font = ImageFont.truetype("arial.ttf", 14)
-    except IOError:
-        font = ImageFont.load_default()
-    d.text((20, height - 35), "AI Image Placeholder", fill=(130, 150, 185), font=font)
-
-    img.save(filepath)
+    return generated_paths

@@ -6,16 +6,21 @@ import shutil
 
 from markdown_parser import parse_markdown
 from ai_planner import generate_slide_plan
-from image_generator import generate_images
+from image_generator import generate_images, STYLE_PROMPTS
 from slide_builder import generate_pptx
 
+# Optional: load .env locally (app.py might run before other modules)
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except Exception:
+    pass
 
 def _get_secret(key, default=None):
     """st.secrets を優先し、なければ os.getenv にフォールバック。"""
     try:
-        val = st.secrets[key]
-        if val is not None:
-            return str(val).strip()
+        if hasattr(st, "secrets") and key in st.secrets:
+            return str(st.secrets[key]).strip()
     except Exception:
         pass
     return os.getenv(key, default)
@@ -27,27 +32,31 @@ OUTPUT_FILENAME = "presentation.pptx"
 def main():
     st.set_page_config(page_title="AI Slide Generator", layout="wide")
     
-    st.title("✨ AI PowerPoint Generator (Google Nano Banana Edition)")
+    st.title("✨ AI PowerPoint Generator (OpenAI Edition)")
     
-    # Check API Key (st.secrets → os.getenv)
-    google_api_key = _get_secret("GOOGLE_API_KEY")
-    if not google_api_key:
-        st.error("⛔ `GOOGLE_API_KEY` が設定されていません。Streamlit Cloud の Settings → Secrets に GOOGLE_API_KEY を設定してください。")
-        st.stop()
-
-    st.markdown("Markdown → AI Plan → AI Images (Nano Banana) → PPTX")
+    # Check API Key
+    openai_api_key = _get_secret("OPENAI_API_KEY")
+    
+    st.markdown("Markdown → AI Plan (GPT-4o) → AI Images ({Style} + DALL·E 3) → PPTX")
 
     # Sidebar
     with st.sidebar:
         st.header("Settings")
-        st.success("API Key Loaded")
+        
+        if openai_api_key:
+            st.success("OpenAI Key Loaded")
+        else:
+            st.error("OPENAI_API_KEY not found. Please set it in .env or Secrets.")
 
-        # Read config via st.secrets → os.getenv
-        image_model = _get_secret("IMAGE_MODEL_NAME", "nano-banana")
-        image_provider = _get_secret("IMAGE_PROVIDER", "google")
-
+        # Config
+        image_model = _get_secret("IMAGE_MODEL_NAME", "dall-e-3")
         st.text_input("Image Model", value=image_model, disabled=True)
-        st.text_input("Provider", value=image_provider, disabled=True)
+        
+        # Image Style Selection
+        style_options = list(STYLE_PROMPTS.keys())
+        selected_style = st.selectbox("Image Style", style_options, index=0)
+        
+        st.info(f"Style: {selected_style}\n(OpenAI API for Planning & Images)")
 
     # Input Area
     default_text = """# 税務DX提案
@@ -69,6 +78,10 @@ def main():
             st.error("Markdownを入力してください。")
             return
 
+        if not openai_api_key:
+            st.error("OPENAI_API_KEY is missing. Cannot proceed.")
+            return
+
         # --- Pipeline ---
         status = st.status("Generating Presentation...", expanded=True)
         
@@ -78,15 +91,14 @@ def main():
             parsed_data = parse_markdown(user_input)
             st.json(parsed_data, expanded=False)
             
-            # 2. Plan (AI - Gemini)
-            status.write("🧠 AI Planning (Gemini)...")
-            # Using the same key for planning
-            plan = generate_slide_plan(parsed_data, api_key=google_api_key)
+            # 2. Plan (AI - OpenAI)
+            status.write("🧠 AI Planning (GPT-4o) - One-Claim Policy...")
+            plan = generate_slide_plan(parsed_data, api_key=openai_api_key)
             st.write("--- Design Plan ---")
             st.json(plan, expanded=False)
             
-            # 3. Images (AI - Nano Banana / Google)
-            status.write(f"🎨 Generating Images (Model: {image_model})...")
+            # 3. Images (AI - DALL-E 3)
+            status.write(f"🎨 Generating Images ({selected_style} - {image_model})...")
             # Cleanup old assets
             if os.path.exists(ASSETS_DIR):
                 shutil.rmtree(ASSETS_DIR)
@@ -94,9 +106,9 @@ def main():
             image_paths = generate_images(
                 plan,
                 output_dir=ASSETS_DIR,
-                api_key=google_api_key,
-                provider=image_provider,
+                api_key=openai_api_key,
                 model_name=image_model,
+                image_style=selected_style,
             )
             
             # Show previews
@@ -106,7 +118,7 @@ def main():
                     with cols[i % 4]:
                         st.image(path, caption=f"Slide {i+1}", use_container_width=True)
             else:
-                st.warning("No images generated (failed or skipped).")
+                st.warning("No images generated (failed or skipped). Proceeding with text only.")
             
             # 4. Build PPTX
             status.write("🔨 Building PowerPoint...")
