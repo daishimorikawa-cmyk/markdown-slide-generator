@@ -12,14 +12,26 @@ import streamlit as st
 import os
 import shutil
 
-from config import get_setting, bootstrap_gcp_auth, is_vertex_mode, auth_label
-from text_extractor import extract_text
-from ai_planner import generate_deck_json
-from image_generator import generate_slide_images
-from slide_builder import build_pptx
+from markdown_parser import parse_markdown
+from ai_planner import generate_slide_plan
+from image_generator import generate_images, STYLE_PROMPTS
+from slide_builder import generate_pptx
 
-# --- Bootstrap GCP auth (must run before any Google client is created) ---
-bootstrap_gcp_auth()
+# Optional: load .env locally (app.py might run before other modules)
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except Exception:
+    pass
+
+def _get_secret(key, default=None):
+    """st.secrets を優先し、なければ os.getenv にフォールバック。"""
+    try:
+        if hasattr(st, "secrets") and key in st.secrets:
+            return str(st.secrets[key]).strip()
+    except Exception:
+        pass
+    return os.getenv(key, default)
 
 # --- Config ---
 ASSETS_DIR = "assets"
@@ -28,145 +40,102 @@ OUTPUT_FILENAME = "presentation.pptx"
 
 def main():
     st.set_page_config(page_title="AI Slide Generator", layout="wide")
-
-    st.title("AI PowerPoint Generator (Vertex AI Edition)")
-
-    # --- Read settings ---
-    gcp_project = get_setting("GCP_PROJECT_ID")
-    gcp_location = get_setting("GCP_LOCATION", "us-central1")
-    text_model = get_setting("TEXT_MODEL_NAME", "gemini-1.5-flash-002")
-    image_model = get_setting("IMAGE_MODEL_NAME", "imagen-3.0-generate-001")
-    image_provider = get_setting("IMAGE_PROVIDER", "google")
-    google_api_key = get_setting("GOOGLE_API_KEY")
-
-    # Validate auth
-    vertex = is_vertex_mode()
-    if not vertex and not google_api_key:
-        st.error(
-            "認証情報が見つかりません。\n\n"
-            "Streamlit Cloud: Secrets に `GCP_SA_JSON` と `GCP_PROJECT_ID` を設定してください。\n\n"
-            "ローカル: `GOOGLE_APPLICATION_CREDENTIALS`（サービスアカウント）または "
-            "`GOOGLE_API_KEY` を設定してください。"
-        )
-        st.stop()
-
-    st.markdown(
-        "テキストまたはPDFを入力 → AI が提案資料として成立する "
-        "PowerPoint を自動生成します（deck_json 方式）"
-    )
+    
+    st.title("✨ AI PowerPoint Generator (OpenAI Edition)")
+    
+    # Check API Key
+    openai_api_key = _get_secret("OPENAI_API_KEY")
+    
+    st.markdown("Markdown → AI Plan (GPT-4o) → AI Images ({Style} + DALL·E 3) → PPTX")
 
     # --- Sidebar ---
     with st.sidebar:
         st.header("Settings")
-        st.info(f"Auth: {auth_label()}")
-        if vertex:
-            st.text_input("GCP Project", value=gcp_project or "", disabled=True)
-            st.text_input("Location", value=gcp_location, disabled=True)
-        st.text_input("Text Model", value=text_model, disabled=True)
-        st.text_input("Image Model", value=image_model, disabled=True)
-        st.text_input("Provider", value=image_provider, disabled=True)
-        st.caption("Last updated: 2026-01-30")
-
-    # --- Input Area ---
-    input_tab_text, input_tab_pdf = st.tabs(["Text Input", "PDF Upload"])
-
-    with input_tab_text:
-        default_text = (
-            "税務DX提案\n\n"
-            "現状の課題\n"
-            "- 手作業が多い\n"
-            "- 属人化している\n"
-            "- ミスが起きやすい\n\n"
-            "解決策\n"
-            "- AI活用\n"
-            "- 自動化\n"
-            "- クラウド連携"
-        )
-        user_text = st.text_area(
-            "テキスト入力（箇条書き・メモ等なんでもOK）",
-            value=default_text, height=300,
-        )
-
-    with input_tab_pdf:
-        uploaded_pdf = st.file_uploader(
-            "PDFファイルをアップロード", type=["pdf"],
-        )
-
-    if st.button("Generate Presentation", type="primary"):
-        # Determine input source
-        source = None
-        source_type = "text"
-        if uploaded_pdf is not None:
-            source = uploaded_pdf
-            source_type = "pdf"
-        elif user_text and user_text.strip():
-            source = user_text
-            source_type = "text"
+        
+        if openai_api_key:
+            st.success("OpenAI Key Loaded")
         else:
-            st.error("テキストを入力するか、PDFをアップロードしてください。")
+            st.error("OPENAI_API_KEY not found. Please set it in .env or Secrets.")
+
+        # Config
+        image_model = _get_secret("IMAGE_MODEL_NAME", "dall-e-3")
+        st.text_input("Image Model", value=image_model, disabled=True)
+        
+        # Image Style Selection
+        style_options = list(STYLE_PROMPTS.keys())
+        selected_style = st.selectbox("Image Style", style_options, index=0)
+        
+        st.info(f"Style: {selected_style}\n(OpenAI API for Planning & Images)")
+
+    # Input Area
+    default_text = """# 税務DX提案
+
+## 現状の課題
+- 手作業が多い
+- 属人化している
+- ミスが起きやすい
+
+## 解決策
+- AI活用
+- 自動化
+- クラウド連携
+"""
+    user_input = st.text_area("Markdown Input", value=default_text, height=300)
+
+    if st.button("🚀 Generate Presentation", type="primary"):
+        if not user_input.strip():
+            st.error("Markdownを入力してください。")
+            return
+
+        if not openai_api_key:
+            st.error("OPENAI_API_KEY is missing. Cannot proceed.")
             return
 
         # --- Pipeline ---
         status = st.status("Generating Presentation...", expanded=True)
 
         try:
-            # ── Phase A: Extract text ──
-            status.write("Phase A: テキスト抽出中...")
-            extracted = extract_text(source, source_type)
-            if not extracted.strip():
-                st.error("入力からテキストを抽出できませんでした。")
-                return
-            st.text_area("Extracted Text", value=extracted, height=150, disabled=True)
-
-            # ── Phase B: Generate deck_json via Gemini ──
-            status.write(f"Phase B: スライド構成を生成中 ({text_model})...")
-            deck_json = generate_deck_json(
-                extracted,
-                api_key=google_api_key,
-                project_id=gcp_project,
-                location=gcp_location,
-                model_name=text_model,
-            )
-            n_slides = len(deck_json.get("slides", []))
-            status.write(f"  deck_json: {n_slides} slides")
-            st.json(deck_json, expanded=False)
-
-            # ── Phase C: Generate images ──
-            status.write(f"Phase C: スライド画像を生成中 ({image_model})...")
+            # 1. Parse
+            status.write("📝 Parsing Markdown...")
+            parsed_data = parse_markdown(user_input)
+            st.json(parsed_data, expanded=False)
+            
+            # 2. Plan (AI - OpenAI)
+            status.write("🧠 AI Planning (GPT-4o) - One-Claim Policy...")
+            plan = generate_slide_plan(parsed_data, api_key=openai_api_key)
+            st.write("--- Design Plan ---")
+            st.json(plan, expanded=False)
+            
+            # 3. Images (AI - DALL-E 3)
+            status.write(f"🎨 Generating Images ({selected_style} - {image_model})...")
+            # Cleanup old assets
             if os.path.exists(ASSETS_DIR):
                 shutil.rmtree(ASSETS_DIR)
 
             image_results = generate_slide_images(
                 deck_json,
                 output_dir=ASSETS_DIR,
-                api_key=google_api_key,
-                provider=image_provider,
+                api_key=openai_api_key,
                 model_name=image_model,
-                project_id=gcp_project,
-                location=gcp_location,
+                image_style=selected_style,
             )
-
-            # Show image previews
-            if image_results:
-                cols = st.columns(min(4, len(image_results)))
-                for idx, info in image_results.items():
-                    path = info.get("path", "") if isinstance(info, dict) else info
-                    img_type = info.get("type", "?") if isinstance(info, dict) else "?"
-                    col = cols[idx % len(cols)]
-                    with col:
-                        if os.path.exists(path):
-                            st.image(path, caption=f"Slide {idx + 1} ({img_type})",
-                                     use_container_width=True)
-                        else:
-                            st.warning(f"Slide {idx + 1}: image not found")
-
-            # ── Phase D: Build PPTX ──
-            status.write("Phase D: PowerPoint を生成中...")
-            output_path = build_pptx(deck_json, image_results, OUTPUT_FILENAME)
-
-            status.update(label="Complete!", state="complete", expanded=False)
-
-            # Download
+            
+            # Show previews
+            if image_paths:
+                cols = st.columns(4)
+                for i, path in image_paths.items():
+                    with cols[i % 4]:
+                        st.image(path, caption=f"Slide {i+1}", use_container_width=True)
+            else:
+                st.warning("No images generated (failed or skipped). Proceeding with text only.")
+            
+            # 4. Build PPTX
+            status.write("🔨 Building PowerPoint...")
+            output_path = generate_pptx(plan, image_paths, OUTPUT_FILENAME, title=parsed_data['title'])
+            
+            status.update(label="✅ Complete!", state="complete", expanded=False)
+            
+            # 5. Download
             with open(output_path, "rb") as f:
                 st.download_button(
                     label="Download .pptx",

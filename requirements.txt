@@ -1,6 +1,5 @@
 streamlit
 python-pptx
-google-generativeai
-google-cloud-aiplatform
 Pillow
-PyPDF2
+openai
+python-dotenv
