@@ -14,7 +14,7 @@ import shutil
 
 from markdown_parser import parse_markdown
 from ai_planner import generate_slide_plan
-from image_generator import generate_images, STYLE_PROMPTS
+from image_generator import generate_slide_images, STYLE_PROMPTS
 from slide_builder import generate_pptx
 
 # Optional: load .env locally (app.py might run before other modules)
@@ -112,8 +112,8 @@ def main():
             if os.path.exists(ASSETS_DIR):
                 shutil.rmtree(ASSETS_DIR)
 
-            image_results = generate_slide_images(
-                deck_json,
+            image_paths = generate_slide_images(
+                plan,
                 output_dir=ASSETS_DIR,
                 api_key=openai_api_key,
                 model_name=image_model,
