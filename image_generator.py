@@ -1,3 +1,16 @@
+"""
+Phase C: Generate visuals for each slide.
+
+Routing:
+  - visual_type=SCENE  → Imagen generation (fallback: PPT shapes via slide_builder)
+  - visual_type=DIAGRAM → Skip Imagen entirely; return diagram metadata
+                           for slide_builder to draw PPT shapes
+
+Features:
+  - Retry up to 2 times with prompt simplification on SCENE failure
+  - Never leaves a slide without visual content
+"""
+
 import os
 import io
 import requests

@@ -1,7 +1,26 @@
+"""
+Phase D: Build PPTX from deck_json and generated images.
+
+Supports three layouts:
+  - TITLE              — Cover slide (title + subtitle)
+  - TITLE_LEFT_IMAGE_RIGHT — Left text + right image (default)
+  - IMAGE_FULL_TEXT_BOTTOM  — Full-bleed image + text strip at bottom
+
+Each content slide renders:
+  - title   (in a colored header bar)
+  - message (key takeaway line, bold)
+  - body    (80-180 char description paragraph)
+  - bullets (3-5 items)
+  - image   (Imagen result or fallback shape)
+
+If no image file is available, a PPT-native shape diagram is drawn
+directly on the slide so that no slide is ever blank.
+"""
+
 from pptx import Presentation
-from pptx.util import Inches, Pt
+from pptx.util import Inches, Pt, Emu
 from pptx.dml.color import RGBColor
-from pptx.enum.text import PP_ALIGN
+from pptx.enum.text import PP_ALIGN, MSO_ANCHOR
 from pptx.enum.shapes import MSO_SHAPE
 import os
 try:

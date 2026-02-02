@@ -118,6 +118,80 @@ IMAGE_PROVIDER=google
 streamlit run app.py
 ```
 
+#### Streamlit Cloud デプロイ（Vertex AI / サービスアカウント認証）
+
+Streamlit Cloud で動かす場合、サービスアカウント JSON をリポジトリに含めず、
+**Secrets** に貼り付けて使います。
+
+1. Streamlit Cloud の **Settings → Secrets** を開く
+2. 以下の TOML を貼り付ける（値は自分の環境に合わせて変更）
+
+```toml
+GCP_PROJECT_ID = "your-gcp-project-id"
+GCP_LOCATION = "us-central1"
+TEXT_MODEL_NAME = "gemini-1.5-flash-002"
+IMAGE_PROVIDER = "google"
+IMAGE_MODEL_NAME = "imagen-3.0-generate-001"
+
+GCP_SA_JSON = """
+{
+  "type": "service_account",
+  "project_id": "your-gcp-project-id",
+  "private_key_id": "...",
+  "private_key": "-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----\n",
+  "client_email": "...@your-gcp-project-id.iam.gserviceaccount.com",
+  "client_id": "...",
+  "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+  "token_uri": "https://oauth2.googleapis.com/token",
+  "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
+  "client_x509_cert_url": "..."
+}
+"""
+```
+
+> **注意:** `GCP_SA_JSON` の値は三重引用符 `"""` で囲みます（TOML の複数行文字列）。
+> サービスアカウント JSON の中身をそのまま貼り付けてください。
+
+アプリ起動時に `GCP_SA_JSON` が検出されると、一時ファイルに書き出して
+`GOOGLE_APPLICATION_CREDENTIALS` を自動設定します。ログに以下が出力されます:
+
+```
+[AUTH] using sa_json from secrets
+[AUTH] wrote temp credentials: /tmp/gcp_sa_XXXX.json
+```
+
+#### ローカル開発
+
+ローカルでは従来通り `.env` + JSON ファイル方式が使えます:
+
+```env
+GOOGLE_API_KEY=your_google_api_key_here
+IMAGE_MODEL_NAME=imagen-3.0-generate-001
+IMAGE_PROVIDER=google
+```
+
+または Vertex AI を使う場合:
+
+```env
+GCP_PROJECT_ID=your-gcp-project-id
+GCP_LOCATION=us-central1
+TEXT_MODEL_NAME=gemini-1.5-flash-002
+IMAGE_MODEL_NAME=imagen-3.0-generate-001
+IMAGE_PROVIDER=google
+GOOGLE_APPLICATION_CREDENTIALS=/path/to/service-account.json
+```
+
+#### 認証の優先順位
+
+| 優先度 | モード | 条件 |
+|--------|--------|------|
+| 1 | Vertex AI (SA) | `GCP_PROJECT_ID` + `GOOGLE_APPLICATION_CREDENTIALS` が存在 |
+| 2 | API Key | `GOOGLE_API_KEY` が存在 |
+| 3 | Fallback | 認証なし → プレースホルダー画像 + フォールバックプラン |
+
+設定値の取得は全て **Streamlit Secrets → 環境変数 → デフォルト** の順で解決されます。
+
 ## 注意事項
-- 画像生成に失敗した場合、自動的に画像なしのスライドが生成されます。
+- 画像生成に失敗した場合、自動的にプレースホルダー画像のスライドが生成されます。
 - `.env` ファイルは git にコミットしないでください（`.gitignore` 設定済み）。
+- サービスアカウント JSON ファイルもリポジトリに含めないでください。

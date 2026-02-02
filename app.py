@@ -1,7 +1,15 @@
+"""
+Streamlit UI — AI PowerPoint Generator (deck_json pipeline)
+
+Pipeline:
+  Phase A: Input (PDF / text) → extracted text
+  Phase B: Extracted text → deck_json (via Gemini)
+  Phase C: deck_json → slide images (via Imagen + retry + fallback)
+  Phase D: deck_json + images → PPTX
+"""
+
 import streamlit as st
-import io
 import os
-import json
 import shutil
 
 from markdown_parser import parse_markdown
@@ -29,6 +37,7 @@ def _get_secret(key, default=None):
 ASSETS_DIR = "assets"
 OUTPUT_FILENAME = "presentation.pptx"
 
+
 def main():
     st.set_page_config(page_title="AI Slide Generator", layout="wide")
     
@@ -39,7 +48,7 @@ def main():
     
     st.markdown("Markdown → AI Plan (GPT-4o) → AI Images ({Style} + DALL·E 3) → PPTX")
 
-    # Sidebar
+    # --- Sidebar ---
     with st.sidebar:
         st.header("Settings")
         
@@ -84,7 +93,7 @@ def main():
 
         # --- Pipeline ---
         status = st.status("Generating Presentation...", expanded=True)
-        
+
         try:
             # 1. Parse
             status.write("📝 Parsing Markdown...")
@@ -103,8 +112,8 @@ def main():
             if os.path.exists(ASSETS_DIR):
                 shutil.rmtree(ASSETS_DIR)
 
-            image_paths = generate_images(
-                plan,
+            image_results = generate_slide_images(
+                deck_json,
                 output_dir=ASSETS_DIR,
                 api_key=openai_api_key,
                 model_name=image_model,
@@ -129,16 +138,17 @@ def main():
             # 5. Download
             with open(output_path, "rb") as f:
                 st.download_button(
-                    label="📥 Download .pptx",
+                    label="Download .pptx",
                     data=f,
                     file_name="ai_presentation.pptx",
-                    mime="application/vnd.openxmlformats-officedocument.presentationml.presentation"
+                    mime="application/vnd.openxmlformats-officedocument.presentationml.presentation",
                 )
 
         except Exception as e:
-            status.update(label="❌ Error", state="error")
+            status.update(label="Error", state="error")
             st.error(f"An error occurred: {e}")
             st.exception(e)
+
 
 if __name__ == "__main__":
     main()

@@ -117,3 +117,23 @@ def _create_fallback_plan(parsed_data):
         "theme": {"style": "simple"},
         "slides": slides
     }
+
+
+# ── Legacy compatibility (kept as alias, not the default path) ─────
+
+def generate_slide_plan(parsed_data, api_key=None, project_id=None,
+                        location=None, model_name=None):
+    """
+    Legacy wrapper: converts old parsed_data format to extracted text,
+    then delegates to generate_deck_json.
+    """
+    # Reconstruct text from old format
+    title = parsed_data.get("title", "")
+    parts = [title]
+    for slide in parsed_data.get("slides", []):
+        parts.append(slide.get("title", ""))
+        for b in slide.get("bullets", []):
+            parts.append(f"- {b}")
+    text = "\n".join(parts)
+    return generate_deck_json(text, api_key=api_key, project_id=project_id,
+                              location=location, model_name=model_name)
